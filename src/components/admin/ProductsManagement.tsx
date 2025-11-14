@@ -117,9 +117,36 @@ export default function ProductsManagement() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+    if (!confirm('Are you sure you want to delete this product? This will also archive it in Stripe.')) return;
 
     try {
+      const product = products.find(p => p.id === id);
+
+      if (product && (product as any).stripe_product_id) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Not authenticated');
+
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-product-from-stripe`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              stripeProductId: (product as any).stripe_product_id,
+              stripePriceId: (product as any).stripe_price_id,
+            }),
+          }
+        );
+
+        const result = await response.json();
+        if (!result.success) {
+          console.warn('Failed to archive product in Stripe:', result.error);
+        }
+      }
+
       const { error } = await supabase.from('products').delete().eq('id', id);
       if (error) throw error;
       await fetchProducts();
